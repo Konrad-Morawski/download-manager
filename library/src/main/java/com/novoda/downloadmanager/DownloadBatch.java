@@ -212,13 +212,14 @@ class DownloadBatch {
             return true;
         }
 
-        Optional<Integer> violatedRuleCode = downloadBatchRequirementRule
-                .getViolatedRule(downloadBatchStatus)
-                .map(DownloadBatchRequirementRule::getCode);
-        if (violatedRuleCode.isPresent()) {
+        Optional<DownloadBatchRequirementRule> violatedRule = downloadBatchRequirementRule.getViolatedRule(downloadBatchStatus);
+        if (violatedRule.isPresent()) {
+            Integer violatedRuleCode = violatedRule
+                    .map(DownloadBatchRequirementRule::getCode)
+                    .getOrElse(null);
             DownloadError downloadError = new DownloadError(
                     REQUIREMENT_RULE_VIOLATED,
-                    violatedRuleCode.get());
+                    violatedRuleCode);
             Optional<DownloadError> error = Optional.fromNullable(downloadError);
             downloadBatchStatus.markAsError(error, downloadsBatchPersistence);
             notifyCallback(callback, downloadBatchStatus);
