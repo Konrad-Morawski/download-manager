@@ -31,18 +31,22 @@ class DownloadBatch {
     private final DownloadsBatchPersistence downloadsBatchPersistence;
     private final FileCallbackThrottle fileCallbackThrottle;
     private final ConnectionChecker connectionChecker;
-    private final DownloadBatchRequirementRule downloadBatchRequirementRule;
+    private final DownloadBatchRequirementRules downloadBatchRequirementRules;
+    private final FilesDownloader filesDownloader;
 
     private long totalBatchSizeBytes;
     private DownloadBatchStatusCallback callback;
 
+    // The download batch is where the majority of the logic sits
+    @SuppressWarnings("checkstyle:parameternumber")
     DownloadBatch(InternalDownloadBatchStatus internalDownloadBatchStatus,
                   List<DownloadFile> downloadFiles,
                   Map<DownloadFileId, Long> fileBytesDownloadedMap,
                   DownloadsBatchPersistence downloadsBatchPersistence,
                   FileCallbackThrottle fileCallbackThrottle,
                   ConnectionChecker connectionChecker,
-                  DownloadBatchRequirementRule downloadBatchRequirementRule
+                  DownloadBatchRequirementRules downloadBatchRequirementRules,
+                  FilesDownloader filesDownloader
     ) {
         this.downloadFiles = downloadFiles;
         this.fileBytesDownloadedMap = fileBytesDownloadedMap;
@@ -50,7 +54,8 @@ class DownloadBatch {
         this.downloadsBatchPersistence = downloadsBatchPersistence;
         this.fileCallbackThrottle = fileCallbackThrottle;
         this.connectionChecker = connectionChecker;
-        this.downloadBatchRequirementRule = downloadBatchRequirementRule;
+        this.downloadBatchRequirementRules = downloadBatchRequirementRules;
+        this.filesDownloader = filesDownloader;
     }
 
     void setCallback(DownloadBatchStatusCallback callback) {
@@ -79,19 +84,14 @@ class DownloadBatch {
                 downloadBatchStatus,
                 downloadsBatchPersistence,
                 callback,
-                downloadBatchRequirementRule,
+                downloadBatchRequirementRules,
                 totalBatchSizeBytes
         )) {
             Logger.v("abort after getting total " + BATCH + "size download " + rawBatchId + STATUS + downloadBatchStatus.status());
             return;
         }
 
-        for (DownloadFile downloadFile : downloadFiles) {
-            if (batchCannotContinue(downloadBatchStatus, connectionChecker, downloadsBatchPersistence, callback)) {
-                break;
-            }
-            downloadFile.download(fileDownloadCallback);
-        }
+        filesDownloader.download(downloadFiles, callback, fileDownloadCallback);
 
         if (networkError(downloadBatchStatus)) {
             processNetworkError(downloadBatchStatus, callback, downloadsBatchPersistence);
@@ -103,7 +103,7 @@ class DownloadBatch {
         Logger.v("end sync download " + rawBatchId);
     }
 
-    private static boolean shouldAbortStartingBatch(ConnectionChecker connectionChecker,
+  private static boolean shouldAbortStartingBatch(ConnectionChecker connectionChecker,
                                                     DownloadBatchStatusCallback callback,
                                                     InternalDownloadBatchStatus downloadBatchStatus,
                                                     DownloadsBatchPersistence downloadsBatchPersistence) {
@@ -193,7 +193,7 @@ class DownloadBatch {
     private static boolean shouldAbortAfterGettingTotalBatchSize(InternalDownloadBatchStatus downloadBatchStatus,
                                                                  DownloadsBatchPersistence downloadsBatchPersistence,
                                                                  DownloadBatchStatusCallback callback,
-                                                                 DownloadBatchRequirementRule downloadBatchRequirementRule,
+                                                                 DownloadBatchRequirementRules downloadBatchRequirementRules,
                                                                  long totalBatchSizeBytes) {
         if (downloadBatchStatus.status() == PAUSED) {
             notifyCallback(callback, downloadBatchStatus);
@@ -212,8 +212,15 @@ class DownloadBatch {
             return true;
         }
 
-        if (downloadBatchRequirementRule.hasViolatedRule(downloadBatchStatus)) {
-            Optional<DownloadError> error = Optional.fromNullable(new DownloadError(REQUIREMENT_RULE_VIOLATED));
+        Optional<DownloadBatchRequirementRule> violatedRule = downloadBatchRequirementRules.getViolatedRule(downloadBatchStatus);
+        if (violatedRule.isPresent()) {
+            Integer violatedRuleCode = violatedRule
+                    .map(DownloadBatchRequirementRule::getCode)
+                    .getOrElse(null);
+            DownloadError downloadError = new DownloadError(
+                    REQUIREMENT_RULE_VIOLATED,
+                    violatedRuleCode);
+            Optional<DownloadError> error = Optional.fromNullable(downloadError);
             downloadBatchStatus.markAsError(error, downloadsBatchPersistence);
             notifyCallback(callback, downloadBatchStatus);
             return true;
@@ -222,7 +229,7 @@ class DownloadBatch {
         return false;
     }
 
-    private static boolean batchCannotContinue(InternalDownloadBatchStatus downloadBatchStatus,
+    static boolean batchCannotContinue(InternalDownloadBatchStatus downloadBatchStatus,
                                                ConnectionChecker connectionChecker,
                                                DownloadsBatchPersistence downloadsBatchPersistence,
                                                DownloadBatchStatusCallback callback) {

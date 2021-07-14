@@ -5,9 +5,9 @@ import androidx.annotation.WorkerThread;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 class DownloadsBatchPersistence implements DownloadsBatchStatusPersistence, DownloadsNotificationSeenPersistence {
@@ -19,20 +19,20 @@ class DownloadsBatchPersistence implements DownloadsBatchStatusPersistence, Down
     private final DownloadsPersistence downloadsPersistence;
     private final CallbackThrottleCreator callbackThrottleCreator;
     private final ConnectionChecker connectionChecker;
-    private final DownloadBatchRequirementRule downloadBatchRequirementRule;
+    private final DownloadBatchRequirementRules downloadBatchRequirementRules;
 
     DownloadsBatchPersistence(Executor executor,
                               DownloadsFilePersistence downloadsFilePersistence,
                               DownloadsPersistence downloadsPersistence,
                               CallbackThrottleCreator callbackThrottleCreator,
                               ConnectionChecker connectionChecker,
-                              DownloadBatchRequirementRule downloadBatchRequirementRule) {
+                              DownloadBatchRequirementRules downloadBatchRequirementRules) {
         this.executor = executor;
         this.downloadsFilePersistence = downloadsFilePersistence;
         this.downloadsPersistence = downloadsPersistence;
         this.callbackThrottleCreator = callbackThrottleCreator;
         this.connectionChecker = connectionChecker;
-        this.downloadBatchRequirementRule = downloadBatchRequirementRule;
+        this.downloadBatchRequirementRules = downloadBatchRequirementRules;
     }
 
     void persistAsync(DownloadBatchTitle downloadBatchTitle,
@@ -112,7 +112,7 @@ class DownloadsBatchPersistence implements DownloadsBatchStatusPersistence, Down
 
         downloadFiles = Collections.unmodifiableList(downloadFiles);
 
-        Map<DownloadFileId, Long> downloadedFileSizeMap = new HashMap<>(downloadFiles.size());
+        Map<DownloadFileId, Long> downloadedFileSizeMap = new ConcurrentHashMap<>(downloadFiles.size());
 
         long currentBytesDownloaded = 0;
         long totalBatchSizeBytes = 0;
@@ -143,6 +143,12 @@ class DownloadsBatchPersistence implements DownloadsBatchStatusPersistence, Down
 
         FileCallbackThrottle fileCallbackThrottle = callbackThrottleCreator.create();
 
+        SequentialFilesDownloader filesDownloader = new SequentialFilesDownloader(
+                liteDownloadBatchStatus,
+                connectionChecker,
+                DownloadsBatchPersistence.this
+        );
+
         return new DownloadBatch(
                 liteDownloadBatchStatus,
                 downloadFiles,
@@ -150,7 +156,8 @@ class DownloadsBatchPersistence implements DownloadsBatchStatusPersistence, Down
                 DownloadsBatchPersistence.this,
                 fileCallbackThrottle,
                 connectionChecker,
-                downloadBatchRequirementRule
+                downloadBatchRequirementRules,
+                filesDownloader
         );
     }
 

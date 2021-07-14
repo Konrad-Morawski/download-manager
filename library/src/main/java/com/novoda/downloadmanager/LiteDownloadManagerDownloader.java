@@ -21,12 +21,13 @@ class LiteDownloadManagerDownloader {
     private final DownloadsBatchPersistence downloadsBatchPersistence;
     private final DownloadsFilePersistence downloadsFilePersistence;
     private final DownloadBatchStatusNotificationDispatcher notificationDispatcher;
-    private final DownloadBatchRequirementRule downloadBatchRequirementRule;
+    private final DownloadBatchRequirementRules downloadBatchRequirementRules;
     private final Set<DownloadBatchStatusCallback> callbacks;
     private final ConnectionChecker connectionChecker;
     private final CallbackThrottleCreator callbackThrottleCreator;
     private final DownloadBatchStatusFilter downloadBatchStatusFilter;
     private final Wait.Criteria serviceCriteria;
+    private final boolean enableConcurrentFileDownloading;
 
     private DownloadService downloadService;
 
@@ -40,12 +41,13 @@ class LiteDownloadManagerDownloader {
                                   DownloadsBatchPersistence downloadsBatchPersistence,
                                   DownloadsFilePersistence downloadsFilePersistence,
                                   DownloadBatchStatusNotificationDispatcher notificationDispatcher,
-                                  DownloadBatchRequirementRule downloadBatchRequirementRule,
+                                  DownloadBatchRequirementRules downloadBatchRequirementRules,
                                   ConnectionChecker connectionChecker,
                                   Set<DownloadBatchStatusCallback> callbacks,
                                   CallbackThrottleCreator callbackThrottleCreator,
                                   DownloadBatchStatusFilter downloadBatchStatusFilter,
-                                  Wait.Criteria serviceCriteria) {
+                                  Wait.Criteria serviceCriteria,
+                                  boolean enableConcurrentFileDownloading) {
         this.waitForDownloadService = waitForDownloadService;
         this.waitForDownloadBatchStatusCallback = waitForDownloadBatchStatusCallback;
         this.executor = executor;
@@ -54,12 +56,13 @@ class LiteDownloadManagerDownloader {
         this.downloadsBatchPersistence = downloadsBatchPersistence;
         this.downloadsFilePersistence = downloadsFilePersistence;
         this.notificationDispatcher = notificationDispatcher;
-        this.downloadBatchRequirementRule = downloadBatchRequirementRule;
+        this.downloadBatchRequirementRules = downloadBatchRequirementRules;
         this.connectionChecker = connectionChecker;
         this.callbacks = callbacks;
         this.callbackThrottleCreator = callbackThrottleCreator;
         this.downloadBatchStatusFilter = downloadBatchStatusFilter;
         this.serviceCriteria = serviceCriteria;
+        this.enableConcurrentFileDownloading = enableConcurrentFileDownloading;
     }
 
     void download(Batch batch, Map<DownloadBatchId, DownloadBatch> downloadBatchMap) {
@@ -70,7 +73,8 @@ class LiteDownloadManagerDownloader {
                 downloadsFilePersistence,
                 callbackThrottleCreator.create(),
                 connectionChecker,
-                downloadBatchRequirementRule
+                downloadBatchRequirementRules,
+                enableConcurrentFileDownloading
         );
 
         executor.submit(downloadBatch::updateTotalSize);
@@ -153,7 +157,8 @@ class LiteDownloadManagerDownloader {
                 downloadsFilePersistence,
                 callbackThrottleCreator.create(),
                 connectionChecker,
-                downloadBatchRequirementRule
+                downloadBatchRequirementRules,
+                enableConcurrentFileDownloading
         );
         downloadBatchMap.put(downloadBatch.getId(), downloadBatch);
         return downloadsBatchPersistence.persistCompletedBatch(completedDownloadBatch);
